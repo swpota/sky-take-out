@@ -29,7 +29,7 @@ public class SetMealController {
     @ApiOperation("新增套餐")
     public Result save(@RequestBody SetmealDTO setmealDTO){
         log.info("新增套餐：{}", setmealDTO);
-        setmealService.save(setmealDTO);
+        setmealService.saveWithDish(setmealDTO);
         return Result.success();
     }
 }
