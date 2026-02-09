@@ -189,4 +189,14 @@ public class DishServiceImpl implements DishService {
 
         return dishVOList;
     }
+
+    /**
+     * 启用或禁用菜品
+     * @param status
+     * @param ids
+     */
+    @Override
+    public void startOrStop(Integer status, List<Long> ids) {
+
+    }
 }
