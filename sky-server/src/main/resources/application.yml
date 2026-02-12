@@ -54,4 +54,10 @@ sky:
     appid: ${sky.wechat.appid}
     secret: ${sky.wechat.secret}
 
+  shop:
+    address: 湖南省娄底市新化县农机学校
+
+  baidu:
+    ak: e5aPODoVqeIw2f2MphEH5aSEdSg7PPh4
+
 
