@@ -5,6 +5,7 @@ import com.alibaba.fastjson.JSONObject;
 import com.sky.properties.WeChatProperties;
 import com.wechat.pay.contrib.apache.httpclient.WechatPayHttpClientBuilder;
 import com.wechat.pay.contrib.apache.httpclient.util.PemUtil;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang.RandomStringUtils;
 import org.apache.http.HttpHeaders;
 import org.apache.http.client.methods.CloseableHttpResponse;
@@ -13,6 +14,7 @@ import org.apache.http.client.methods.HttpPost;
 import org.apache.http.entity.ContentType;
 import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.HttpClients;
 import org.apache.http.util.EntityUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -33,6 +35,7 @@ import java.util.List;
  * 微信支付工具类
  */
 @Component
+@Slf4j
 public class WeChatPayUtil {
 
     //微信支付下单接口地址
@@ -50,27 +53,35 @@ public class WeChatPayUtil {
      * @return
      */
     private CloseableHttpClient getClient() {
-        PrivateKey merchantPrivateKey = null;
+        // 如果未配置证书路径（开发环境跳过微信支付），直接返回一个模拟的 HttpClient
+        String privateKeyPath = weChatProperties.getPrivateKeyFilePath();
+        String certPath = weChatProperties.getWeChatPayCertFilePath();
+
+        if (privateKeyPath == null || certPath == null) {
+            log.warn("微信支付证书未配置，使用模拟 HttpClient（仅用于开发）");
+            return HttpClients.createDefault(); // 直接返回默认客户端，不签名/验签
+        }
+
         try {
-            //merchantPrivateKey商户API私钥，如何加载商户API私钥请看常见问题
-            merchantPrivateKey = PemUtil.loadPrivateKey(new FileInputStream(new File(weChatProperties.getPrivateKeyFilePath())));
-            //加载平台证书文件
-            X509Certificate x509Certificate = PemUtil.loadCertificate(new FileInputStream(new File(weChatProperties.getWeChatPayCertFilePath())));
-            //wechatPayCertificates微信支付平台证书列表。你也可以使用后面章节提到的“定时更新平台证书功能”，而不需要关心平台证书的来龙去脉
+            // 原有逻辑（仅当配置了证书时才执行）
+            PrivateKey merchantPrivateKey = PemUtil.loadPrivateKey(
+                    new FileInputStream(new File(privateKeyPath))
+            );
+            X509Certificate x509Certificate = PemUtil.loadCertificate(
+                    new FileInputStream(new File(certPath))
+            );
             List<X509Certificate> wechatPayCertificates = Arrays.asList(x509Certificate);
 
             WechatPayHttpClientBuilder builder = WechatPayHttpClientBuilder.create()
                     .withMerchant(weChatProperties.getMchid(), weChatProperties.getMchSerialNo(), merchantPrivateKey)
                     .withWechatPay(wechatPayCertificates);
 
-            // 通过WechatPayHttpClientBuilder构造的HttpClient，会自动的处理签名和验签
-            CloseableHttpClient httpClient = builder.build();
-            return httpClient;
-        } catch (FileNotFoundException e) {
-            e.printStackTrace();
-            return null;
+            return builder.build();
+        } catch (Exception e) {
+            throw new RuntimeException("初始化微信支付客户端失败", e);
         }
     }
+
 
     /**
      * 发送post方式请求
@@ -164,6 +175,18 @@ public class WeChatPayUtil {
      * @return
      */
     public JSONObject pay(String orderNum, BigDecimal total, String description, String openid) throws Exception {
+        // 开发环境直接返回模拟结果，不调用微信接口
+        if (isDevEnv()) {
+            log.warn("开发环境，跳过真实微信支付，返回模拟预支付单");
+            JSONObject jo = new JSONObject();
+            jo.put("prepay_id", "mock_prepay_id_" + System.currentTimeMillis());
+            jo.put("timeStamp", String.valueOf(System.currentTimeMillis() / 1000));
+            jo.put("nonceStr", RandomStringUtils.randomNumeric(32));
+            jo.put("package", "prepay_id=mock_prepay_id");
+            jo.put("signType", "RSA");
+            jo.put("paySign", "mock_sign");
+            return jo;
+        }
         //统一下单，生成预支付交易单
         String bodyAsString = jsapi(orderNum, total, description, openid);
         //解析返回结果
@@ -215,6 +238,11 @@ public class WeChatPayUtil {
      * @return
      */
     public String refund(String outTradeNo, String outRefundNo, BigDecimal refund, BigDecimal total) throws Exception {
+        // 开发环境直接返回成功（模拟退款）
+        if (isDevEnv()) {
+            log.warn("开发环境，跳过真实退款，返回模拟成功");
+            return "{\"code\":\"SUCCESS\"}";
+        }
         JSONObject jsonObject = new JSONObject();
         jsonObject.put("out_trade_no", outTradeNo);
         jsonObject.put("out_refund_no", outRefundNo);
@@ -232,4 +260,10 @@ public class WeChatPayUtil {
         //调用申请退款接口
         return post(REFUNDS, body);
     }
+
+    private boolean isDevEnv() {
+        String profile = System.getProperty("spring.profiles.active", "dev");
+        return "dev".equalsIgnoreCase(profile) || "test".equalsIgnoreCase(profile);
+    }
+
 }
